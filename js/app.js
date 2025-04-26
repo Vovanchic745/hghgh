@@ -1,37 +1,67 @@
-function loadTasks() {
-    return JSON.parse(localStorage.getItem("tasks") || "[]");
-  }
-  
-  function saveTasks(tasks) {
-    localStorage.setItem("tasks", JSON.stringify(tasks));
-  }
-  
-  function detectDepartment(comment) {
-    const keywords = {
-      "дороги": "Транспорт",
-      "освещение": "Благоустройство",
-      "интернет": "Цифровизация",
-      "свет": "Благоустройство",
-      "мусор": "Экология"
-    };
-    for (const word in keywords) {
-      if (comment.toLowerCase().includes(word)) {
-        return keywords[word];
-      }
+const API_URL = "/api/tasks";
+
+async function loadTasks() {
+  const res = await fetch(API_URL);
+  const data = await res.json();
+  return data.tasks || [];
+}
+
+async function saveTask(task) {
+  await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(task),
+  });
+}
+
+async function deleteTask(id) {
+  await fetch(`${API_URL}/${id}`, { method: "DELETE" });
+}
+
+async function updateTaskStatus(id, newStatus) {
+  await fetch(`${API_URL}/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: newStatus }),
+  });
+}
+
+// ----------------------------------------
+
+function detectDepartment(comment) {
+  const keywords = {
+    "дороги": "Транспорт",
+    "освещение": "Благоустройство",
+    "интернет": "Цифровизация",
+    "свет": "Благоустройство",
+    "мусор": "Экология"
+  };
+  for (const word in keywords) {
+    if (comment.toLowerCase().includes(word)) {
+      return keywords[word];
     }
-    return "Общие вопросы";
   }
-  
-  if (document.getElementById("taskForm")) {
-    const form = document.getElementById("taskForm");
-    const list = document.getElementById("taskList");
-  
-    form.addEventListener("submit", function (e) {
+  return "Общие вопросы";
+}
+
+// ----------------------------------------
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const form = document.getElementById("taskForm");
+  const list = document.getElementById("taskList");
+  const departmentsStats = document.getElementById("departmentsStats");
+  const analyticsPanel = document.getElementById("analyticsPanel");
+  const taskManagerList = document.getElementById("taskManagerList");
+  const statusSummary = document.getElementById("statusSummary");
+
+  // Отрисовка задач на главной
+  if (form && list) {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const commentInput = document.getElementById("comment");
       const comment = commentInput.value.trim();
       if (!comment) return;
-  
+
       const task = {
         id: Date.now(),
         comment,
@@ -39,16 +69,14 @@ function loadTasks() {
         status: "в процессе",
         date: new Date().toLocaleDateString()
       };
-  
-      const tasks = loadTasks();
-      tasks.push(task);
-      saveTasks(tasks);
+
+      await saveTask(task);
       commentInput.value = "";
       renderTaskList();
     });
-  
-    function renderTaskList() {
-      const tasks = loadTasks();
+
+    async function renderTaskList() {
+      const tasks = await loadTasks();
       list.innerHTML = "";
       tasks.forEach(task => {
         const div = document.createElement("div");
@@ -56,15 +84,15 @@ function loadTasks() {
         list.appendChild(div);
       });
     }
-  
+
     renderTaskList();
   }
-  
-  if (document.getElementById("departmentsStats")) {
-    const container = document.getElementById("departmentsStats");
-    const tasks = loadTasks();
+
+  // Статистика по отделам
+  if (departmentsStats) {
+    const tasks = await loadTasks();
     const stats = {};
-  
+
     tasks.forEach(task => {
       if (!stats[task.department]) {
         stats[task.department] = { total: 0, done: 0, overdue: 0 };
@@ -73,7 +101,7 @@ function loadTasks() {
       if (task.status === "выполнена") stats[task.department].done++;
       if (task.status === "просрочена") stats[task.department].overdue++;
     });
-  
+
     for (const dept in stats) {
       const el = document.createElement("div");
       el.innerHTML = `
@@ -82,36 +110,33 @@ function loadTasks() {
         <p>Выполнено: ${stats[dept].done}</p>
         <p>Просрочено: ${stats[dept].overdue}</p>
       `;
-      container.appendChild(el);
+      departmentsStats.appendChild(el);
     }
   }
-  
-  if (document.getElementById("analyticsPanel")) {
-    const panel = document.getElementById("analyticsPanel");
-    const tasks = loadTasks();
-  
+
+  // Общая аналитика
+  if (analyticsPanel) {
+    const tasks = await loadTasks();
     const total = tasks.length;
     const done = tasks.filter(t => t.status === "выполнена").length;
     const overdue = tasks.filter(t => t.status === "просрочена").length;
-  
-    panel.innerHTML = `
+
+    analyticsPanel.innerHTML = `
       <h2>Общая статистика</h2>
       <p>Всего обращений: ${total}</p>
       <p>Выполнено: ${done}</p>
       <p>Просрочено: ${overdue}</p>
     `;
   }
-  
-  if (document.getElementById("taskManagerList")) {
-    const container = document.getElementById("taskManagerList");
-    const statusSummary = document.getElementById("statusSummary");
-  
-    function updateSummary(tasks) {
+
+  // Управление задачами
+  if (taskManagerList && statusSummary) {
+    async function updateSummary(tasks) {
       const total = tasks.length;
       const done = tasks.filter(t => t.status === "выполнена").length;
       const overdue = tasks.filter(t => t.status === "просрочена").length;
       const active = total - done - overdue;
-  
+
       statusSummary.innerHTML = `
         <strong>Всего:</strong> ${total} |
         <strong>Выполнено:</strong> ${done} |
@@ -119,35 +144,44 @@ function loadTasks() {
         <strong>В процессе:</strong> ${active}
       `;
     }
-  
-    function renderManagerTasks() {
-      const tasks = loadTasks();
-      container.innerHTML = "";
-      updateSummary(tasks);
-  
+
+    async function renderManagerTasks() {
+      const tasks = await loadTasks();
+      taskManagerList.innerHTML = "";
+      await updateSummary(tasks);
+
       tasks.forEach(task => {
         const div = document.createElement("div");
         div.style.display = "flex";
         div.style.justifyContent = "space-between";
         div.style.alignItems = "center";
-  
+
         const info = document.createElement("div");
         info.innerHTML = `<strong>[${task.department}]</strong> ${task.comment} — <em>${task.status}</em>`;
-  
+
         const actions = document.createElement("div");
-  
+
         const doneBtn = document.createElement("button");
         doneBtn.textContent = "✅ Выполнено";
-        doneBtn.onclick = () => updateTaskStatus(task.id, "выполнена");
-  
+        doneBtn.onclick = async () => {
+          await updateTaskStatus(task.id, "выполнена");
+          renderManagerTasks();
+        };
+
         const lateBtn = document.createElement("button");
         lateBtn.textContent = "⚠️ Просрочена";
-        lateBtn.onclick = () => updateTaskStatus(task.id, "просрочена");
-  
+        lateBtn.onclick = async () => {
+          await updateTaskStatus(task.id, "просрочена");
+          renderManagerTasks();
+        };
+
         const deleteBtn = document.createElement("button");
         deleteBtn.textContent = "🗑️ Удалить";
-        deleteBtn.onclick = () => deleteTask(task.id);
-  
+        deleteBtn.onclick = async () => {
+          await deleteTask(task.id);
+          renderManagerTasks();
+        };
+
         [doneBtn, lateBtn, deleteBtn].forEach(btn => {
           btn.style.marginLeft = "5px";
           btn.style.padding = "5px";
@@ -155,36 +189,25 @@ function loadTasks() {
           btn.style.borderRadius = "4px";
           btn.style.cursor = "pointer";
         });
-  
+
         actions.appendChild(doneBtn);
         actions.appendChild(lateBtn);
         actions.appendChild(deleteBtn);
-  
+
         div.appendChild(info);
         div.appendChild(actions);
         div.classList.add("task-item");
-        container.appendChild(div);
+        taskManagerList.appendChild(div);
       });
     }
-  
-    function updateTaskStatus(id, newStatus) {
-      const tasks = loadTasks().map(task =>
-        task.id === id ? { ...task, status: newStatus } : task
-      );
-      saveTasks(tasks);
-      renderManagerTasks();
-    }
-  
-    function deleteTask(id) {
-      const tasks = loadTasks().filter(task => task.id !== id);
-      saveTasks(tasks);
-      renderManagerTasks();
-    }
-  
+
     renderManagerTasks();
   }
+
+  // Навигация активная
   document.querySelectorAll(".nav-link").forEach(link => {
     if (window.location.href.includes(link.getAttribute("href"))) {
       link.style.background = "rgba(255, 255, 255, 0.3)";
     }
   });
+});
